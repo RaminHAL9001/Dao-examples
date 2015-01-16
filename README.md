@@ -3,6 +3,16 @@ Copyright (C) 2008-2015, Ramin Honary, all rights reserved.
 
 ## Example programs demonstrating how to use the Dao package
 
+Dao is a Haskell package providing an Embedded Domain Specific
+Language for natural language understanding and artificial
+intelligence. It can be checked out from GitHub at:
+
+https://github.com/RaminHAL9001/Dao-examples
+
+Stable releases will be made available on Hackage:
+
+http://hackage.haskell.org/package/Dao
+
 Each Haskell program in this package is a module which explains some
 aspect of how to use the Dao package. To compile all of the modules in
 this package, just run Cabal, no need to install it:
