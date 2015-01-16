@@ -7,7 +7,7 @@ Dao is a Haskell package providing an Embedded Domain Specific
 Language for natural language understanding and artificial
 intelligence. It can be checked out from GitHub at:
 
-https://github.com/RaminHAL9001/Dao-examples
+https://github.com/RaminHAL9001/Dao
 
 Stable releases will be made available on Hackage:
 
