@@ -1,0 +1,70 @@
+-- "dao-examples.cabal" build configuration for this project.
+--
+-- Copyright (C) 2014  Ramin Honary.
+--
+-- Dao is free software: you can redistribute it and/or modify it under
+-- the terms of the GNU General Public License as published by the Free
+-- Software Foundation, either version 3 of the License, or (at your
+-- option) any later version.
+--
+-- Dao is distributed in the hope that it will be useful, but WITHOUT
+-- ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+-- FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License
+-- for more details.
+--
+-- You should have received a copy of the GNU General Public License
+-- along with this program (see the file called "LICENSE"). If not, see
+-- <http://www.gnu.org/licenses/agpl.html>.
+
+Name:           dao-examples
+Version:        1.0.0.0
+Cabal-Version:  >= 1.18
+License:        GPL-3
+Copyright:      (C) 2014 Ramin Honary, all rights reserved.
+Author:         Ramin Honary
+Maintainer:     ramin.honary@gmail.com
+Build-Type:     Simple
+Synopsis:       Example programs for the Dao package.
+Description:    This package provides a few well-documented example programs
+                demonstrating how to use the Dao package.
+                
+                A good starting point is "Dao.Examples.FuzzyStrings".
+
+                Dao is a Domain Specific Language (DSL) intended providing tools
+                for logic programming, specifically production-rule-based
+                artificial intelligence reminiscient of the PROLOG programming
+                language, but made better with Haskell's static type checking
+                and clean semantics. This makes Dao well suited for things like
+                type checking, computing build dependencies, whole-program
+                analysis, knowledge base applications, as well as natural
+                language.
+                
+                Dao originally defined a JavaScript-like programming
+                language for defining production rule databases suited to
+                natural language understanding, but now it is just a DSL with
+                tools for defining grammars and parsers, where all production
+                rules are defined in a Haskell program using the Dao APIs.
+Library
+  HS-source-dirs: src
+  GHC-options: -threaded -Wall
+    -fno-warn-name-shadowing
+    -fno-warn-unused-do-bind
+  Exposed-Modules:
+    Dao.Examples.FuzzyStrings,  Dao.Examples.Numbers
+  Build-Depends:
+    array               >= 0.3.0.2, base         >= 4.3.1.0, binary      >= 0.5.0.2,
+    bytestring          >= 0.9.1.2, containers   >= 0.4.0.0, Crypto      >= 4.2.5.1,
+    data-binary-ieee754 >= 0.4.4  , deepseq      >= 1.3.0.0, directory   >= 1.1.0.0,
+    filepath            >= 1.2.0.0, mtl          >= 2.2.1  , process     >= 1.0.1.2,
+    random              >= 1.0.0.1, text         >= 1.1.0.1, time        >= 1.4.2  ,
+    template-haskell    >= 2.9.0.0, transformers >= 0.2.2.0, utf8-string >= 0.3.2  ,
+    Dao                 >= 1.0.0.0, readline     >= 1.0.0.0
+  Default-Extensions:
+    DeriveDataTypeable    ExistentialQuantification FlexibleContexts
+    FlexibleInstances     FunctionalDependencies    GeneralizedNewtypeDeriving
+    MultiParamTypeClasses OverlappingInstances      RankNTypes
+    ScopedTypeVariables   StandaloneDeriving        TemplateHaskell
+    TypeFamilies          ImplicitParams
+  Default-Language: Haskell2010
+  GHC-Options: -threaded
+

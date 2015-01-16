@@ -1,0 +1,15 @@
+:set prompt "\x3BB "
+:set -XDeriveDataTypeable
+:set -XExistentialQuantification
+:set -XFlexibleContexts
+:set -XFlexibleInstances
+:set -XFunctionalDependencies
+:set -XGeneralizedNewtypeDeriving
+:set -XMultiParamTypeClasses
+:set -XOverlappingInstances
+:set -XRankNTypes
+:set -XScopedTypeVariables
+:set -XStandaloneDeriving
+:set -XTemplateHaskell
+:set -XTypeFamilies
+:set -XImplicitParams
