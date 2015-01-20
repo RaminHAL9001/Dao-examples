@@ -78,6 +78,7 @@ import           Dao.Examples.FuzzyStrings
 
 import           Data.Either
 import           Data.Functor.Identity
+import           Data.Maybe
 import           Data.Monoid
 import qualified Data.Map  as M
 import qualified Data.Text as Strict
@@ -129,7 +130,7 @@ type NumberRule m i = forall m . (Functor m, Applicative m, Monad m) => Rule m i
 --   ]
 -- @
 singleDigitsMap :: M.Map Integer String
-singleDigitsMap = M.fromList $ 
+singleDigitsMap = M.fromList
   [ (0, "zero no"),
     (1, "one a on won wun"),
     (2, "two to too tu tuu"),
@@ -160,7 +161,7 @@ singleDigitsMap = M.fromList $
 --   ]
 -- @
 teensMap :: M.Map Integer String
-teensMap = M.fromList $
+teensMap = M.fromList
   [ (10, "ten tn te"),
     (11, "eleven"),
     (12, "twelve"),
@@ -189,7 +190,7 @@ teensMap = M.fromList $
 --   ]
 -- @
 doubleDigitsMap :: M.Map Integer String
-doubleDigitsMap = M.fromList $
+doubleDigitsMap = M.fromList
   [ (20, "twenty"),
     (30, "thirty"),
     (40, "fourty"),
@@ -214,7 +215,7 @@ doubleDigitsMap = M.fromList $
 -- @
 zillionsMap :: M.Map Integer String
 zillionsMap = M.fromList $ zip (iterate (1000 *) 1000) $
-  ("thousand" :) $ fmap (++ "illion") $
+  ("thousand" :) $ (++ "illion") <$>
     [ "m", "b", "tr" , "quadr", "quint", "sext" , "sept", "oct", "non" , "dec", "undec", "dodec"
     , "tredec", "quattuordec", "quinquadec" , "sexdec", "septdec", "octdec" , "novendec", "vigint"
     ]
@@ -269,7 +270,7 @@ zillionsMap = M.fromList $ zip (iterate (1000 *) 1000) $
 -- ruleFromMap = 'Control.Monad.msum' . 'Data.Functor.fmap' convertAssocToRule . 'Data.Map.assocs' where
 --   convertAssocToRule (i, str) =
 --     'Dao.Rule.tree' 'Dao.Tree.DepthFirst'
---          ('Data.Functor.fmap' (\\str -> ['Dao.Examples.FuzzyStrings.fuzzyString' str]) $ 'Prelude.words' str)
+--          ((\\str -> ['Dao.Examples.FuzzyStrings.fuzzyString' str]) 'Control.Applicative.<$>' 'Prelude.words' str)
 --          ('Prelude.const' $ return i)
 -- @
 --
@@ -290,7 +291,7 @@ ruleFromMap :: M.Map Integer String -> NumberRule m Integer
 ruleFromMap = msum . fmap convertAssocToRule . M.assocs where
   convertAssocToRule (i, str) =
     tree T.DepthFirst
-         (fmap (\str -> [fuzzyString str]) $ words str)
+         ((\str -> [fuzzyString str]) <$> words str)
          (const $ return i)
 
 -- | The 'numberDigits' 'Dao.Rule.Rule' will parse an ordinary number expressed as a string of
@@ -323,7 +324,7 @@ ruleFromMap = msum . fmap convertAssocToRule . M.assocs where
 --
 -- So lets create a Dao production 'Dao.Rule.Rule' that matches an 'Data.Text.Text'
 -- 'Dao.Object.Object' in the input 'Dao.Rule.Query', then tries to parse this 'Data.Text.Text' as a
--- 'Prelude.Integer' value using the Haskell function 'Text.Read.readsPrec'. If the parse is
+-- 'Prelude.Integer' value using the Haskell function 'Text.Read.reads'. If the parse is
 -- successful, the 'Dao.Rule.Rule' should succeed and return the 'Prelude.Integer' value. If the
 -- parse fails, the 'Dao.Rule.Rule' should fail with 'Control.Monad.mzero' or
 -- 'Control.Applicative.empty'.
@@ -333,7 +334,7 @@ ruleFromMap = msum . fmap convertAssocToRule . M.assocs where
 --   \'-\':str   -> 'Prelude.negate' 'Control.Applicative.<$>' parse str
 --   str       -> parse str
 --   where
---     parse str = case 'Text.Read.readsPrec' 0 str of
+--     parse str = case 'Text.Read.reads' 0 str of
 --       [(i, "")] -> return i
 --       _         -> 'Control.Monad.mzero'
 -- @
@@ -342,7 +343,7 @@ numberDigits = infer $ \str -> case Strict.unpack str of
   '-':str   -> negate <$> parse str
   str       -> parse str
   where
-    parse str = case readsPrec 0 str of
+    parse str = case reads str of
       [(i, "")] -> return i
       _ -> mzero
 
@@ -391,8 +392,8 @@ zillions = ruleFromMap zillionsMap
 -- alternative, but I prefer list syntax myself.
 --
 -- @
--- subHundred = 'Control.Monad.msum' $
---   [ ('Prelude.+') 'Control.Applicative.<$>' 'doubleDigits' 'Control.Applicative.<*>' ('Prelude.maybe' 0 'Prelude.id' 'Control.Applicative.<$>' 'Control.Applicative.optional' 'singleDigits'),
+-- subHundred = 'Control.Monad.msum'
+--   [ ('Prelude.+') 'Control.Applicative.<$>' 'doubleDigits' 'Control.Applicative.<*>' ('Data.Maybe.fromMaybe' 0 'Control.Applicative.<$>' 'Control.Applicative.optional' 'singleDigits'),
 --     'teens',
 --     'singleDigits'
 --   ]
@@ -400,8 +401,8 @@ zillions = ruleFromMap zillionsMap
 --
 -- And that is all we need to do to match any expression less than 100. Well that was easy!
 subHundred :: NumberRule m Integer
-subHundred = msum $
-  [ (+) <$> doubleDigits <*> (maybe 0 id <$> optional singleDigits),
+subHundred = msum
+  [ (+) <$> doubleDigits <*> (fromMaybe 0 <$> optional singleDigits),
     teens,
     singleDigits
   ]
@@ -486,7 +487,7 @@ _and = msum $ fmap fuzzyText (words "and und an nd n") ++ [return ()]
 -- the 'Control.Applicative.Alternative' operator @('Control.Applicative.<|>')@.
 --
 -- @
--- hundreds = 'Dao.Rule.bestMatch' $ 'Control.Monad.msum' $
+-- hundreds = 'Dao.Rule.bestMatch' $ 'Control.Monad.msum'
 --   [ (\\a hundred b -> a*hundred + b) 'Control.Applicative.<$>' 'singleDigits' <*> ('_hundred' 'Control.Applicative.<*' '_and') 'Control.Applicative.<*>' 'subHundred',
 --     (*) 'Control.Applicative.<$>' 'subHundred' 'Control.Applicative.<*>' '_hundred',
 --     'subHundred', '_hundred',
@@ -514,7 +515,7 @@ _and = msum $ fmap fuzzyText (words "and und an nd n") ++ [return ()]
 -- However 'Dao.Rule.bestMatch' does not eliminate thrown errors, or multiple results that all
 -- matched equally well.
 hundreds :: NumberRule m Integer
-hundreds = bestMatch $ msum $
+hundreds = bestMatch $ msum
   [ (\a hundred b -> a*hundred + b) <$> singleDigits <*> (_hundred <* _and) <*> subHundred,
     (*) <$> subHundred <*> _hundred,
     subHundred, _hundred,
@@ -532,7 +533,7 @@ hundreds = bestMatch $ msum $
 -- @
 -- numberSentence n = do
 --     h <- 'hundreds'
---     'Control.Monad.msum' $
+--     'Control.Monad.msum'
 --       [ (\\z n -> h\*z + n) 'Control.Applicative.<$>' 'zillions' 'Control.Applicative.<*>' ('numberSentence' 'Control.Applicative.<|>' return n),
 --         return (h+n)
 --       ]
@@ -550,7 +551,7 @@ hundreds = bestMatch $ msum $
 --
 -- @
 -- numberSentence = neg 'Control.Applicative.<*>' 'Dao.Logic.chooseOnly' 1 ('Dao.Rule.bestMatch' $ loop 'Data.Monoid.mempty' 0) where
---   neg = 'Control.Monad.msum' $ 'Data.Functor.fmap' ('Prelude.flip' 'Dao.Examples.FuzzyStrings.fuzzyRule' ('Prelude.const' $ return 'Prelude.negate')) (words "minus negative neg") 'Prelude.++'
+--   neg = 'Control.Monad.msum' $ 'Data.Functor.fmap' (`'Dao.Examples.FuzzyStrings.fuzzyRule'` ('Prelude.const' $ return 'Prelude.negate')) (words "minus negative neg") 'Prelude.++'
 --           [return 'Prelude.id']
 --   loop saidAlready n = do
 --     h <- 'hundreds'
@@ -574,19 +575,18 @@ hundreds = bestMatch $ msum $
 -- work not only on 'Dao.Rule.Rule's, but any monadic type instantiating 'Dao.Logic.MonadLogic'.
 numberSentence :: NumberRule m Integer
 numberSentence = neg <*> chooseOnly 1 (bestMatch $ loop mempty 0) where
-  neg = msum $ fmap (flip fuzzyRule (const $ return negate)) (words "minus negative neg") ++
+  neg = msum $ fmap (`fuzzyRule` (const $ return negate)) (words "minus negative neg") ++
           [return id]
   loop saidAlready n = do
     h <- hundreds
-    msum $
-      [( do z <- zillions <* optional _and
-            case M.lookup z saidAlready of
-              Nothing -> let i = h*z+n in loop (M.insert z () saidAlready) i <|> return i
-              Just () -> throwObject $ concat $
-                [ "You said ", maybe "something-zillion" show $ M.lookup z zillionsMap,
-                  " more than once."
-                ]
-        ),
+    msum
+      [do z <- zillions <* optional _and
+          case M.lookup z saidAlready of
+            Nothing -> let i = h*z+n in loop (M.insert z () saidAlready) i <|> return i
+            Just () -> throwObject $ concat
+              [ "You said ", maybe "something-zillion" show $ M.lookup z zillionsMap,
+                " more than once."
+              ],
         return (h+n)
       ]
 
@@ -610,11 +610,11 @@ digitsToWords i = toText <$> if i==0 then ["zero"] else isNeg $ convert 1 $ brea
       let (hundreds, dd) = divMod i 100
       let (tens,   ones) = divMod dd 10
       let lookup i m = if i==0 then Just [] else take 1 . words <$> M.lookup i m
-      mplus (convert (1000*z) ix) $ maybe ["MY BRAIN HURTS!!!"] id $ do
+      mplus (convert (1000*z) ix) $ fromMaybe ["MY BRAIN HURTS!!!"] $ do
         hundreds <- lookup hundreds singleDigitsMap
         hundreds <- Just $ if null hundreds then [] else hundreds ++
           if dd==0 then ["hundred"] else words "hundred and"
-        tens <- msum $
+        tens <- msum
           [ if dd==0 then Just [] else Nothing
           , lookup dd teensMap
           , (++) <$> lookup (10*tens) doubleDigitsMap <*> lookup ones singleDigitsMap
@@ -723,7 +723,7 @@ number = bestMatch $
 -- 'ruleFromMap' = 'Control.Monad.msum' . 'Data.Functor.fmap' convertAssocToRule . M.'Data.Map.assocs' where
 --   convertAssocToRule (i, str) =
 --     'Dao.Rule.tree' T.'Dao.Tree.DepthFirst'
---          ('Data.Functor.fmap' (\\str -> ['Dao.Examples.FuzzyStrings.fuzzyString' str]) $ 'Prelude.words' str)
+--          ((\\str -> ['Dao.Examples.FuzzyStrings.fuzzyString' str]) 'Control.Applicative.<$>' 'Prelude.words' str)
 --          ('Prelude.const' $ 'Control.Monad.return' i)
 --
 -- 'numberDigits' :: 'NumberRule' m 'Prelude.Integer'
@@ -731,7 +731,7 @@ number = bestMatch $
 --    \'-\':str   -> 'Prelude.negate' 'Control.Applicative.<$>' parse str
 --    str       -> parse str
 --    where
---      parse str = case 'Text.Read.readsPrec' 0 str of
+--      parse str = case 'Text.Read.reads' 0 str of
 --        [(i, "")] -> return i
 --        _         -> 'Control.Monad.mzero'
 --
@@ -748,8 +748,8 @@ number = bestMatch $
 -- 'zillions' = 'ruleFromMap' 'zillionsMap'
 --
 -- 'subHundred' :: 'NumberRule' m 'Prelude.Integer'
--- 'subHundred' = 'Control.Monad.msum' $
---   [ (+) 'Control.Applicative.<$>' 'doubleDigits' 'Control.Applicative.<*>' ('Prelude.maybe' 0 'Prelude.id' 'Control.Applicative.<$>' 'Control.Applicative.optional' 'singleDigits'),
+-- 'subHundred' = 'Control.Monad.msum'
+--   [ (+) 'Control.Applicative.<$>' 'doubleDigits' 'Control.Applicative.<*>' ('Data.Maybe.fromMaybe' 0 'Control.Applicative.<$>' 'Control.Applicative.optional' 'singleDigits'),
 --     'teens', 'singleDigits'
 --   ]
 --
@@ -760,7 +760,7 @@ number = bestMatch $
 -- '_and' = 'Control.Monad.msum' $ 'Data.Functor.fmap' 'Dao.Examples.FuzzyStrings.fuzzyText' ('Prelude.words' "and und an nd n") 'Prelude.++' ['Control.Monad.return' ()]
 --
 -- 'hundreds' :: 'NumberRule' m 'Prelude.Integer'
--- 'hundreds' = 'Dao.Rule.bestMatch' $ 'Control.Monad.msum' $
+-- 'hundreds' = 'Dao.Rule.bestMatch' $ 'Control.Monad.msum'
 --   [ (\\a hundred b -> a*hundred + b) 'Control.Applicative.<$>' 'singleDigits' 'Control.Applicative.<*>' ('_hundred' 'Control.Applicative.<*' '_and') <*> 'subHundred',
 --     (*) 'Control.Applicative.<$>' 'subHundred' 'Control.Applicative.<*>' '_hundred',
 --     'subHundred', '_hundred',
@@ -769,19 +769,18 @@ number = bestMatch $
 --
 -- 'numberSentence' :: 'NumberRule' m 'Prelude.Integer'
 -- 'numberSentence' = neg 'Control.Applicative.<*>' 'Dao.Logic.chooseOnly' 1 ('Dao.Rule.bestMatch' $ loop 'Data.Monoid.mempty' 0) where
---   neg = 'Control.Monad.msum' $ 'Data.Functor.fmap' ('Prelude.flip' 'Dao.Examples.FuzzyStrings.fuzzyRule' ('Prelude.const' $ return 'Prelude.negate')) (words "minus negative neg") 'Prelude.++'
+--   neg = 'Control.Monad.msum' $ 'Data.Functor.fmap' (`'Dao.Examples.FuzzyStrings.fuzzyRule'` ('Prelude.const' $ return 'Prelude.negate')) (words "minus negative neg") 'Prelude.++'
 --           [return 'Prelude.id']
 --   loop saidAlready n = do
 --     h <- 'hundreds'
---     'Control.Monad.msum' $
---       [( do z <- 'zillions' 'Control.Applicative.<*' 'Control.Applicative.optional' '_and'
---             case M.'Data.Map.lookup' z saidAlready of
---               'Prelude.Nothing' -> loop (M.'Data.Map.insert' z () saidAlready) (h\*z + n)
---               'Prelude.Just' () -> 'Dao.Object.throwObject' $ 'Prelude.concat' $
---                 [ "You said ", 'Prelude.maybe' "something-zillion" 'Prelude.show' $ M.'Data.Map.lookup' z 'zillionsMap',
---                   " more than once."
---                 ]
---         ),
+--     'Control.Monad.msum'
+--       [do z <- 'zillions' 'Control.Applicative.<*' 'Control.Applicative.optional' '_and'
+--           case M.'Data.Map.lookup' z saidAlready of
+--             'Prelude.Nothing' -> loop (M.'Data.Map.insert' z () saidAlready) (h\*z + n)
+--             'Prelude.Just' () -> 'Dao.Object.throwObject' $ 'Prelude.concat'
+--               [ "You said ", 'Prelude.maybe' "something-zillion" 'Prelude.show' $ M.'Data.Map.lookup' z 'zillionsMap',
+--                 " more than once."
+--               ],
 --         'Control.Monad.return' (h+n)
 --       ]
 --
@@ -798,11 +797,11 @@ number = bestMatch $
 --       let (hundreds, dd) = 'Prelude.divMod' i 100
 --       let (tens,   ones) = 'Prelude.divMod' dd 10
 --       let lookup i m = if i==0 then 'Prelude.Just' [] else take 1 . 'Prelude.words' 'Control.Applicative.<$>' M.'Data.Map.lookup' i m
---       'Control.Monad.mplus' (convert (1000\*z) ix) $ 'Prelude.maybe' ["MY BRAIN HURTS!!!"] 'Prelude.id' $
+--       'Control.Monad.mplus' (convert (1000\*z) ix) $ 'Prelude.fromMaybe' ["MY BRAIN HURTS!!!"] $
 --         hundreds <- lookup hundreds 'singleDigitsMap'
 --         hundreds <- 'Prelude.Just' $ if 'Prelude.null' hundreds then [] else hundreds 'Prelude.++'
 --           if dd==0 then ["hundred"] else words "hundred and"
---         tens <- 'Control.Monad.msum' $
+--         tens <- 'Control.Monad.msum'
 --           [ if dd==0 then 'Prelude.Just' [] else 'Prelude.Nothing',
 --             lookup dd 'teensMap',
 --             ('Prelude.++') 'Control.Applicative.<$>' lookup (10*tens) 'doubleDigitsMap' 'Control.Applicative.<*>' lookup ones 'singleDigitsMap'
@@ -826,7 +825,7 @@ number = bestMatch $
 --         'Prelude.Just'  q -> do
 --           'System.Console.Readline.addHistory' q
 --           q <- 'Control.Applicative.pure' $ 'Data.Functor.fmap' obj <$> 'Dao.Examples.FuzzyString.tokenize' q
---           if 'Prelude.null' q then 'Control.Monad.return' () else do
+--           'Control.Monad.unless' ('Prelude.null' q) $ do
 --             'Control.Monad.forM_' ('Prelude.zip' q $ 'Data.Functor.fmap' ('Control.Monad.Identity.runIdentity' . 'Dao.Rule.queryAll' 'number') q)
 --               (\\ (q, result) -> case 'Data.Either.partitionEithers' result of
 --                 ([]   , i:_) -> 'System.IO.print' i
@@ -850,10 +849,10 @@ number = bestMatch $
 --     'Prelude.PFail' err -> ['Prelude.Left' err]
 --     'Prelude.OK'      i -> ['Prelude.Right' (i, o)]
 --   (ok, msg) = case testRule number ('Prelude.show' i) >>= (return . 'Prelude.Left' ||| toStr) of
---     ('Prelude.Right' o : []) | i == 'Prelude.fst' o -> (True , 'Prelude.show' i 'Prelude.++' ": OK -> " 'Prelude.++' 'Prelude.show' o)
---     ('Prelude.Right' o : x ) | i == 'Prelude.fst' o -> let (errs, oks) = 'Prelude.length' 'Control.Arrow.***' 'Prelude.length' $ 'Data.Either.partitionEithers' x in
+--     ['Prelude.Right' o]     | i == 'Prelude.fst' o -> (True , 'Prelude.show' i 'Prelude.++' ": OK -> " 'Prelude.++' 'Prelude.show' o)
+--     ('Prelude.Right' o : x) | i == 'Prelude.fst' o -> let (errs, oks) = 'Prelude.length' 'Control.Arrow.***' 'Prelude.length' $ 'Data.Either.partitionEithers' x in
 --       ( 'Prelude.True'
---       , 'Prelude.concat' $
+--       , 'Prelude.concat'
 --           [ 'Prelude.show' i, ": ", 'Prelude.show' o, " WARNING "
 --           , 'Prelude.show' errs, " errors and ", 'Prelude.show' oks, " other valid results ignored"
 --           ]
@@ -866,9 +865,8 @@ number = bestMatch $
 --     []   -> return ()
 --     i:ix -> do
 --       pass <- 'testInteger' i
---       if 'Prelude.not' pass && (counter::'Prelude.Int') <= 1
---       then return ()
---       else loop ((if pass then 'Prelude.id' else 'Prelude.subtract' 1) counter) ix
+--       unless ('Prelude.not' pass && (counter::'Prelude.Int') <= 1) $
+--         loop ((if pass then 'Prelude.id' else 'Prelude.subtract' 1) counter) ix
 -- @
 main :: IO ()
 main = getArgs >>= \args -> case args of
@@ -882,7 +880,7 @@ main = getArgs >>= \args -> case args of
         Just  q -> do
           addHistory q
           q <- pure $ fmap obj <$> tokenize q
-          if null q then return () else do
+          unless (null q) $ do
             forM_ (zip q $ fmap (runIdentity . queryAll number) q)
               (\ (q, result) -> case partitionEithers result of
                 ([]   , i:_) -> print i
@@ -910,10 +908,10 @@ testInteger i = putStrLn msg >> return ok where
     PFail err -> [Left err]
     OK      i -> [Right (i, o)]
   (ok, msg) = case testRule number (show i) >>= (return . Left ||| toStr) of
-    (Right o : []) | i == fst o -> (True , show i++": OK -> "++show o)
-    (Right o : x ) | i == fst o -> let (errs, oks) = length *** length $ partitionEithers x in
+    [Right o]     | i == fst o -> (True , show i++": OK -> "++show o)
+    (Right o : x) | i == fst o -> let (errs, oks) = length *** length $ partitionEithers x in
       ( True
-      , concat $
+      , concat
           [ show i, ": ", show o, " WARNING "
           , show errs, " errors and ", show oks, " other valid results ignored"
           ]
@@ -927,9 +925,6 @@ testRandom :: IO ()
 testRandom = (++) <$> pure [0..1400] <*> replicateM 1000 randomIO >>= loop 3 where
   loop counter ix = case ix of
     []   -> return ()
-    i:ix -> do
-      pass <- testInteger i
-      if not pass && (counter::Int) <= 1
-      then return ()
-      else loop ((if pass then id else subtract 1) counter) ix
+    i:ix -> testInteger i >>= \pass ->
+      unless (not pass && (counter::Int) <= 1) $ loop ((if pass then id else subtract 1) counter) ix
 
