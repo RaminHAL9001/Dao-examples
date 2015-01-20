@@ -35,11 +35,25 @@ import           Data.Typeable
 ----------------------------------------------------------------------------------------------------
 
 tokenize :: ToText t => t -> [[Strict.Text]]
-tokenize = splitOn '.' . fromText . toText >=> \sentence ->
-  [fmap toText $ words sentence >>= fmap (filter $ not . isPunctuation) . splitOn '-'] where
-    splitOn c str =
-      let (lo, hi) = break (c ==) str
-      in if null lo then [] else lo : if null hi then [] else splitOn c (dropWhile (c ==) hi)
+tokenize = loop [] . fromText . toText where
+  sp = dropWhile isSpace
+  plus wx = if null wx then id else (++ [fmap Strict.pack wx])
+  loop sents str = case breakup [] str of
+    (wx, "" ) -> plus wx sents
+    (wx, str) -> loop (plus wx sents) str
+  breakup wx str = case sp str of
+    ""                    -> (wx, "")
+    '.':str               -> (wx, str)
+    '-':c:str | isDigit c ->
+      let (keep, more) = span isDigit str
+      in  breakup (wx++['-':c:keep]) more
+    c:str | isDigit c     ->
+      let (keep, more) = span isDigit str
+      in  breakup (wx++[c:keep]) more
+    c:str | isAlpha c     ->
+      let (keep, more) = span isAlpha str
+      in  breakup (wx++[c:keep]) more
+    _:str                 -> breakup wx str
 
 ----------------------------------------------------------------------------------------------------
 
@@ -66,10 +80,9 @@ instance ObjectPattern FuzzyString where
 
 instance ObjectData FuzzyString where
   obj fuzStr = obj
-    $ printable    fuzStr
-    $ matchable    fuzStr
-    $ simplifyable fuzStr
-    $ toForeign    fuzStr
+    $ printable fuzStr
+    $ matchable fuzStr
+    $ toForeign fuzStr
   fromObj = fromObj >=> fromForeign
 
 fuzzyString :: ToText t => t -> FuzzyString

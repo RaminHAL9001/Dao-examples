@@ -1,7 +1,7 @@
 # Dao Example Programs
 Copyright (C) 2008-2015, Ramin Honary, all rights reserved.
 
-## Example programs demonstrating how to use the Dao package
+### Example programs demonstrating how to use the Dao package.
 
 Dao is a Haskell package providing an Embedded Domain Specific
 Language for natural language understanding and artificial
@@ -42,7 +42,7 @@ as though it is a chapter in a book.
 
 ### Table of Contents
 
-1. **FuzzyString:** a custom data type instantiating the dynamic data
+1. **FuzzyStrings:** a custom data type instantiating the dynamic data
    type class 'Object'. It is shown how to create data types for
    defining production rules in a knowledge base.
 2. **Numbers:** The FuzzyString module is used to create a production

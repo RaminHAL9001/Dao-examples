@@ -1,6 +1,6 @@
-.PHONEY: all edit clean
+.PHONEY: modules all edit clean
 
-all: Dao-examples.cabal src
+modules: Dao-examples.cabal src
 	cabal build
 
 Dao-examples.cabal:

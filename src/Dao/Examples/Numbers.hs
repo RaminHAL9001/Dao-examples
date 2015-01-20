@@ -68,15 +68,13 @@ module Dao.Examples.Numbers
     -- * Programming English Language Semantics
     subHundred, _hundred, _and, hundreds, numberSentence,
     -- * The Final Product
-    number, digitsToWords, main
+    number, digitsToWords, main, testInteger, testRandom
   )
   where
 
-import           Dao.Examples.FuzzyStrings
-import           Dao.Object
-import           Dao.Rule
-import           Dao.Text
+import           Dao
 import qualified Dao.Tree  as T
+import           Dao.Examples.FuzzyStrings
 
 import           Data.Either
 import           Data.Functor.Identity
@@ -84,11 +82,14 @@ import           Data.Monoid
 import qualified Data.Map  as M
 import qualified Data.Text as Strict
 
+import           Control.Arrow
 import           Control.Applicative
 import           Control.Monad
 import           Control.Monad.Except
 
 import           System.Console.Readline
+import           System.Environment
+import           System.Random
 
 -- | The 'testRule' function can be used to run any of the 'NumberRule' functions defined in this
 -- module. You can use it in @GHCi@ to test any one of the example parsers defined here to get a
@@ -328,14 +329,22 @@ ruleFromMap = msum . fmap convertAssocToRule . M.assocs where
 -- 'Control.Applicative.empty'.
 --
 -- @
--- numberDigits = 'Dao.Rule.infer' $ \\str -> case 'Text.Read.readsPrec' 0 $ 'Data.Text.unpack' str of
---    [(i, "")] -> return i
---    _         -> 'Control.Monad.mzero'
+-- numberDigits = 'Dao.Rule.infer' $ \\str -> case 'Data.Text.unpack' str of
+--   \'-\':str   -> 'Prelude.negate' 'Control.Applicative.<$>' parse str
+--   str       -> parse str
+--   where
+--     parse str = case 'Text.Read.readsPrec' 0 str of
+--       [(i, "")] -> return i
+--       _         -> 'Control.Monad.mzero'
 -- @
 numberDigits :: NumberRule m Integer
-numberDigits = infer $ \str -> case readsPrec 0 $ Strict.unpack str of
-  [(i, "")] -> return i
-  _ -> mzero
+numberDigits = infer $ \str -> case Strict.unpack str of
+  '-':str   -> negate <$> parse str
+  str       -> parse str
+  where
+    parse str = case readsPrec 0 str of
+      [(i, "")] -> return i
+      _ -> mzero
 
 -- | This 'Dao.Rule.Rule' is simply defined as: @'ruleFromMap' 'singleDigitsMap'@
 singleDigits :: NumberRule m Integer
@@ -437,7 +446,7 @@ _and = msum $ fmap fuzzyText (words "and und an nd n") ++ [return ()]
 --
 -- We will also need to match the words "hundred and" in between matching of the 'singleDigits' and
 -- 'subHundred's, which can be done with the '_hundred' 'Dao.Rule.Rule'. The 'Dao.Rule.Rule' for
--- '_and' was defined to be optional, and returns a value of @()@ so we can combined it with the
+-- '_and' was defined to be optional and returns a value of @()@, and we want it to occur after the
 -- '_hundred' function. So lets modify our equation to accept the value returned by '_hundred':
 -- @(\\a hundred b -> a*hundred + b)@.
 --
@@ -501,6 +510,9 @@ _and = msum $ fmap fuzzyText (words "and und an nd n") ++ [return ()]
 -- 'Dao.Rule.Query' input. Said another way, 'Dao.Rule.bestMatch' forces evaluation to be
 -- 'Dao.Tree.DepthFirst' and takes only the longest branch of evaluation, eliminating all other
 -- possible branches before proceeding.
+--
+-- However 'Dao.Rule.bestMatch' does not eliminate thrown errors, or multiple results that all
+-- matched equally well.
 hundreds :: NumberRule m Integer
 hundreds = bestMatch $ msum $
   [ (\a hundred b -> a*hundred + b) <$> singleDigits <*> (_hundred <* _and) <*> subHundred,
@@ -521,7 +533,7 @@ hundreds = bestMatch $ msum $
 -- numberSentence n = do
 --     h <- 'hundreds'
 --     'Control.Monad.msum' $
---       [ (\\z n -> h\*z + n) 'Control.Applicative.<$>' 'zillions' 'Control.Applicative.<*>' 'numberSentence',
+--       [ (\\z n -> h\*z + n) 'Control.Applicative.<$>' 'zillions' 'Control.Applicative.<*>' ('numberSentence' 'Control.Applicative.<|>' return n),
 --         return (h+n)
 --       ]
 -- @
@@ -534,14 +546,18 @@ hundreds = bestMatch $ msum $
 -- of Dao's dynamic typing and not have to worry about the statically typed
 -- 'Control.Monad.Error.Class.MonadError' type.
 --
+-- Lets also allow end-users to optionally precede their number with the word "negative" or "minus".
+--
 -- @
--- numberSentence = 'Dao.Rule.bestMatch' $ loop 'Data.Monoid.mempty' 0 where
+-- numberSentence = neg 'Control.Applicative.<*>' 'Dao.Logic.chooseOnly' 1 ('Dao.Rule.bestMatch' $ loop 'Data.Monoid.mempty' 0) where
+--   neg = 'Control.Monad.msum' $ 'Data.Functor.fmap' ('Prelude.flip' 'Dao.Examples.FuzzyStrings.fuzzyRule' ('Prelude.const' $ return 'Prelude.negate')) (words "minus negative neg") 'Prelude.++'
+--           [return 'Prelude.id']
 --   loop saidAlready n = do
 --     h <- 'hundreds'
 --     'Control.Monad.msum' $
---       [( do z <- 'zillions' <* _and
+--       [( do z <- 'zillions' <* 'Control.Applicative.optional' _and
 --             case 'Data.Map.lookup' z saidAlready of
---               'Prelude.Nothing' -> let i = n+h\*z in return i 'Control.Applicative.<|>' loop ('Data.Map.insert' z () saidAlready) i
+--               'Prelude.Nothing' -> let i = n\*h+z in loop ('Data.Map.insert' z () saidAlready) i 'Control.Applicative.<|>' return i
 --               'Prelude.Just' () -> 'Dao.Object.throwObject' $ 'Prelude.concat' $
 --                 [ "You said ", maybe "something-zillion" 'Prelude.show' $ 'Data.Map.lookup' z 'zillionsMap',
 --                   " more than once."
@@ -550,14 +566,22 @@ hundreds = bestMatch $ msum $
 --         return (h+n)
 --       ]
 -- @
+--
+-- The final thing to note here is the use of 'Dao.Logic.chooseOnly'. Since 'Dao.Rule.bestMatch'
+-- does not eliminate thrown errors or multiple matches that matched equally well, we want to
+-- further narrow down our results to only one thrown error or only the best match. The
+-- 'Dao.Logic.chooseOnly' function can do this. It is a 'Dao.Logic.MonadLogic' function, so it will
+-- work not only on 'Dao.Rule.Rule's, but any monadic type instantiating 'Dao.Logic.MonadLogic'.
 numberSentence :: NumberRule m Integer
-numberSentence = bestMatch $ loop mempty 0 where
+numberSentence = neg <*> chooseOnly 1 (bestMatch $ loop mempty 0) where
+  neg = msum $ fmap (flip fuzzyRule (const $ return negate)) (words "minus negative neg") ++
+          [return id]
   loop saidAlready n = do
     h <- hundreds
     msum $
-      [( do z <- zillions <* _and
+      [( do z <- zillions <* optional _and
             case M.lookup z saidAlready of
-              Nothing -> loop (M.insert z () saidAlready) (h*z + n)
+              Nothing -> let i = h*z+n in loop (M.insert z () saidAlready) i <|> return i
               Just () -> throwObject $ concat $
                 [ "You said ", maybe "something-zillion" show $ M.lookup z zillionsMap,
                   " more than once."
@@ -586,13 +610,17 @@ digitsToWords i = toText <$> if i==0 then ["zero"] else isNeg $ convert 1 $ brea
       let (hundreds, dd) = divMod i 100
       let (tens,   ones) = divMod dd 10
       let lookup i m = if i==0 then Just [] else take 1 . words <$> M.lookup i m
-      mplus (convert (1000*z) ix) $ maybe ["MY BRAIN HURTS!!!"] id $
-        if i==100 then Just $ words "one hundred" else do
-          hundreds <- (>>= (: (words "hundred and"))) <$> lookup hundreds singleDigitsMap
-          tens <- mplus (lookup dd teensMap) $
-            (++) <$> lookup (10*tens) doubleDigitsMap <*> lookup ones singleDigitsMap
-          illion <- if z==1 then Just [] else M.lookup z zillionsMap
-          Just $ hundreds ++ tens ++ [illion]
+      mplus (convert (1000*z) ix) $ maybe ["MY BRAIN HURTS!!!"] id $ do
+        hundreds <- lookup hundreds singleDigitsMap
+        hundreds <- Just $ if null hundreds then [] else hundreds ++
+          if dd==0 then ["hundred"] else words "hundred and"
+        tens <- msum $
+          [ if dd==0 then Just [] else Nothing
+          , lookup dd teensMap
+          , (++) <$> lookup (10*tens) doubleDigitsMap <*> lookup ones singleDigitsMap
+          ]
+        illion <- if z==1 then Just [] else lookup z zillionsMap
+        Just $ hundreds ++ tens ++ illion
 
 ----------------------------------------------------------------------------------------------------
 
@@ -600,6 +628,11 @@ digitsToWords i = toText <$> if i==0 then ["zero"] else isNeg $ convert 1 $ brea
 -- combines the 'numberSentence' 'Dao.Rule.Rule' and the 'numberDigits' rule, so an end user can
 -- enter a string of digits or a sentence of words expressing a number, and this 'Dao.Rule.Rule'
 -- will match the input 'Dao.Rule.Query' and do the right thing.
+--
+-- @
+-- number = 'Dao.Rule.bestMatch' 1 $
+--   ('Dao.Object.obj' . 'Data.Text.unwords' . 'digitsToWords' 'Control.Applicative.<$>' 'numberDigits') 'Control.Applicative.<|>' ('Dao.Object.obj' 'Control.Applicative.<$>' 'numberSentence')
+-- @
 number :: NumberRule m Object
 number = bestMatch $
   (obj . Strict.unwords . digitsToWords <$> numberDigits) <|> (obj <$> numberSentence)
@@ -615,30 +648,30 @@ number = bestMatch $
 --
 -- @
 -- module "Dao.Examples.Numbers" where
--- 
+--
 -- import           "Dao.Examples.FuzzyStrings"
--- import           "Dao.Object"
--- import           "Dao.Rule"
--- import           "Dao.Text"
+--
+-- import           "Dao"
 -- import qualified "Dao.Tree"  as T
--- 
+--
 -- import           "Data.Either"
 -- import           "Data.Functor.Identity"
 -- import           "Data.Monoid"
 -- import qualified "Data.Map"  as M
 -- import qualified "Data.Text" as Strict
--- 
+--
+-- import           "Control.Arrow"
 -- import           "Control.Applicative"
 -- import           "Control.Monad"
 -- import           "Control.Monad.Except"
--- 
+--
 -- import           "System.Console.Readline"
--- 
+--
 -- 'testRule' :: 'Dao.Rule.Rule' 'Control.Monad.Identity.Identity' o -> 'Prelude.String' -> ['Prelude.Either' 'Dao.Object.ErrorObject' o]
 -- 'testRule' rule = 'Dao.Examples.FuzzyString.tokenize' 'Control.Monad.>=>' 'Control.Monad.Identity.runIdentity' . 'Dao.Rule.queryAll' rule . 'Data.Functor.fmap' 'Dao.Object.obj'
--- 
+--
 -- type 'NumberRule' m i = forall m . ('Data.Functor.Functor' m, 'Control.Applicative.Applicative' m, 'Control.Monad.Monad' m) => 'Dao.Rule.Rule' m i
--- 
+--
 -- 'singleDigitsMap' :: M.'Data.Map.Map' 'Prelude.Integer' 'Prelude.String'
 -- 'singleDigitsMap' = M.'Data.Map.fromList' $ 
 --   [ (0, "zero no"),
@@ -652,7 +685,7 @@ number = bestMatch $
 --     (8, "eight ate"),
 --     (9, "nine")
 --   ]
--- 
+--
 -- 'teensMap' :: M.'Data.Map.Map' 'Prelude.Integer' 'Prelude.String'
 -- 'teensMap' = M.'Data.Map.fromList' $
 --   [ (10, "ten tn te"),
@@ -666,7 +699,7 @@ number = bestMatch $
 --     (18, "eighteen"),
 --     (19, "nineteen")
 --   ]
--- 
+--
 -- 'doubleDigitsMap' :: M.'Data.Map.Map' 'Prelude.Integer' 'Prelude.String'
 -- 'doubleDigitsMap' = M.'Data.Map.fromList' $
 --   [ (20, "twenty"),
@@ -678,50 +711,54 @@ number = bestMatch $
 --     (80, "eighty"),
 --     (90, "ninety")
 --   ]
--- 
+--
 -- 'zillionsMap' :: M.'Data.Map.Map' 'Prelude.Integer' 'Prelude.String'
 -- 'zillionsMap' = M.'Data.Map.fromList' $ 'Prelude.zip' ('Prelude.iterate' (1000 *) 1000) $
 --   ("thousand" :) $ 'Data.Functor.fmap' ('Prelude.++' "illion") $
 --     [ "m", "b", "tr" , "quadr", "quint", "sext" , "sept", "oct", "non" , "dec", "undec", "dodec"
 --     , "tredec", "quattuordec", "quinquadec" , "sexdec", "septdec", "octdec" , "novendec", "vigint"
 --     ]
--- 
+--
 -- 'ruleFromMap' :: M.'Data.Map.Map' 'Prelude.Integer' 'Prelude.String' -> NumberRule m 'Prelude.Integer'
 -- 'ruleFromMap' = 'Control.Monad.msum' . 'Data.Functor.fmap' convertAssocToRule . M.'Data.Map.assocs' where
 --   convertAssocToRule (i, str) =
 --     'Dao.Rule.tree' T.'Dao.Tree.DepthFirst'
 --          ('Data.Functor.fmap' (\\str -> ['Dao.Examples.FuzzyStrings.fuzzyString' str]) $ 'Prelude.words' str)
 --          ('Prelude.const' $ 'Control.Monad.return' i)
--- 
+--
 -- 'numberDigits' :: 'NumberRule' m 'Prelude.Integer'
--- 'numberDigits' = 'Dao.Rule.infer' $ \\str -> case 'Text.Read.readsPrec' 0 $ Strict.'Data.Text.unpack' str of
---   [(i, "")] -> 'Control.Monad.return' i
---   _         -> 'Control.Monad.mzero'
--- 
+-- 'numberDigits' = 'Dao.Rule.infer' $ \\str -> case 'Data.Text.unpack' str of
+--    \'-\':str   -> 'Prelude.negate' 'Control.Applicative.<$>' parse str
+--    str       -> parse str
+--    where
+--      parse str = case 'Text.Read.readsPrec' 0 str of
+--        [(i, "")] -> return i
+--        _         -> 'Control.Monad.mzero'
+--
 -- 'singleDigits' :: 'NumberRule' m 'Prelude.Integer'
 -- 'singleDigits' = 'Prelude.ruleFromMap' 'Prelude.singleDigitsMap'
--- 
+--
 -- 'teens' :: 'Prelude.NumberRule' m 'Prelude.Integer'
 -- 'teens' = 'Prelude.ruleFromMap' 'teensMap'
--- 
+--
 -- 'doubleDigits' :: 'NumberRule' m 'Prelude.Integer'
 -- 'doubleDigits' = 'ruleFromMap' 'Prelude.doubleDigitsMap'
--- 
+--
 -- 'zillions' :: 'NumberRule' m 'Prelude.Integer'
 -- 'zillions' = 'ruleFromMap' 'zillionsMap'
--- 
+--
 -- 'subHundred' :: 'NumberRule' m 'Prelude.Integer'
 -- 'subHundred' = 'Control.Monad.msum' $
 --   [ (+) 'Control.Applicative.<$>' 'doubleDigits' 'Control.Applicative.<*>' ('Prelude.maybe' 0 'Prelude.id' 'Control.Applicative.<$>' 'Control.Applicative.optional' 'singleDigits'),
 --     'teens', 'singleDigits'
 --   ]
--- 
+--
 -- '_hundred' :: 'NumberRule' m 'Prelude.Integer'
 -- '_hundred' = 'fuzzyText' "hundred" 'Control.Monad.>>' 'Control.Monad.return' 100
--- 
+--
 -- '_and' :: 'NumberRule' m ()
 -- '_and' = 'Control.Monad.msum' $ 'Data.Functor.fmap' 'Dao.Examples.FuzzyStrings.fuzzyText' ('Prelude.words' "and und an nd n") 'Prelude.++' ['Control.Monad.return' ()]
--- 
+--
 -- 'hundreds' :: 'NumberRule' m 'Prelude.Integer'
 -- 'hundreds' = 'Dao.Rule.bestMatch' $ 'Control.Monad.msum' $
 --   [ (\\a hundred b -> a*hundred + b) 'Control.Applicative.<$>' 'singleDigits' 'Control.Applicative.<*>' ('_hundred' 'Control.Applicative.<*' '_and') <*> 'subHundred',
@@ -729,13 +766,15 @@ number = bestMatch $
 --     'subHundred', '_hundred',
 --     'numberDigits' 'Control.Monad.>>=' \\i -> 'Control.Monad.guard' (i\<1000) 'Control.Monad.>>' 'Control.Monad.return' i
 --   ]
--- 
+--
 -- 'numberSentence' :: 'NumberRule' m 'Prelude.Integer'
--- 'numberSentence' = 'Dao.Rule.bestMatch' $ loop 'Data.Monoid.mempty' 0 where
+-- 'numberSentence' = neg 'Control.Applicative.<*>' 'Dao.Logic.chooseOnly' 1 ('Dao.Rule.bestMatch' $ loop 'Data.Monoid.mempty' 0) where
+--   neg = 'Control.Monad.msum' $ 'Data.Functor.fmap' ('Prelude.flip' 'Dao.Examples.FuzzyStrings.fuzzyRule' ('Prelude.const' $ return 'Prelude.negate')) (words "minus negative neg") 'Prelude.++'
+--           [return 'Prelude.id']
 --   loop saidAlready n = do
 --     h <- 'hundreds'
 --     'Control.Monad.msum' $
---       [( do z <- 'zillions' 'Control.Applicative.<*' '_and'
+--       [( do z <- 'zillions' 'Control.Applicative.<*' 'Control.Applicative.optional' '_and'
 --             case M.'Data.Map.lookup' z saidAlready of
 --               'Prelude.Nothing' -> loop (M.'Data.Map.insert' z () saidAlready) (h\*z + n)
 --               'Prelude.Just' () -> 'Dao.Object.throwObject' $ 'Prelude.concat' $
@@ -745,7 +784,7 @@ number = bestMatch $
 --         ),
 --         'Control.Monad.return' (h+n)
 --       ]
--- 
+--
 -- ----------------------------------------------------------------------------------------------------
 --
 -- 'digitsToWords' :: 'Prelude.Integer' -> [Strict.'Data.Text.Text']
@@ -760,54 +799,137 @@ number = bestMatch $
 --       let (tens,   ones) = 'Prelude.divMod' dd 10
 --       let lookup i m = if i==0 then 'Prelude.Just' [] else take 1 . 'Prelude.words' 'Control.Applicative.<$>' M.'Data.Map.lookup' i m
 --       'Control.Monad.mplus' (convert (1000\*z) ix) $ 'Prelude.maybe' ["MY BRAIN HURTS!!!"] 'Prelude.id' $
---         if i==100 then 'Prelude.Just' $ 'Prelude.words' "one hundred" else do
---           hundreds <- (\\o -> o 'Control.Monad.>>=' (: ('Prelude.words' "hundred and"))) 'Control.Applicative.<$>' lookup hundreds 'singleDigitsMap'
---           tens <- 'Control.Monad.mplus' (lookup dd 'teensMap') $
+--         hundreds <- lookup hundreds 'singleDigitsMap'
+--         hundreds <- 'Prelude.Just' $ if 'Prelude.null' hundreds then [] else hundreds 'Prelude.++'
+--           if dd==0 then ["hundred"] else words "hundred and"
+--         tens <- 'Control.Monad.msum' $
+--           [ if dd==0 then 'Prelude.Just' [] else 'Prelude.Nothing',
+--             lookup dd 'teensMap',
 --             ('Prelude.++') 'Control.Applicative.<$>' lookup (10*tens) 'doubleDigitsMap' 'Control.Applicative.<*>' lookup ones 'singleDigitsMap'
---           illion <- if z==1 then 'Prelude.Just' [] else M.'Data.Map.lookup' z 'zillionsMap'
---           'Prelude.Just' $ hundreds ++ tens ++ [illion]
--- 
+--           ]
+--         illion <- if z==1 then 'Prelude.Just' [] else lookup z 'zillionsMap'
+--         'Prelude.Just' $ hundreds 'Prelude.++' tens 'Prelude.++' illion
+--
 -- 'number' :: 'NumberRule' m 'Object'
 -- 'number' = 'Dao.Rule.bestMatch' $
---   (obj . Strict.'Data.Text.unwords' . 'digitsToWords' <$> 'numberDigits') 'Control.Applicative.<|>' ('Dao.Rule.obj' 'Control.Applicative.<$>' 'numberSentence')
--- 
+--   ('Dao.Object.obj' . Strict.'Data.Text.unwords' . 'digitsToWords' <$> 'numberDigits') 'Control.Applicative.<|>' ('Dao.Rule.obj' 'Control.Applicative.<$>' 'numberSentence')
+--
 -- main :: IO ()
--- main = do
---   'System.Console.Readline.initialize' -- initialize Readline
---   'Data.Function.fix' $ \\loop -> do
---     q <- 'System.Console.Readline.readline' "number> "
---     case q of
---       'Prelude.Nothing' -> 'Control.Monad.return' ()
---       'Prelude.Just'  q -> do
---         addHistory q
---         q <- pure $ 'Data.Functor.fmap' obj <$> tokenize q
---         if 'Prelude.null' q then 'Control.Monad.return' () else do
---           'Control.Monad.forM_' ('Prelude.zip' q $ 'Data.Functor.fmap' ('Control.Monad.Identity.runIdentity' . 'Dao.Rule.queryAll' number) q)
---             (\\ (q, result) -> case 'Data.Either.partitionEithers' result of
---               ([]   , i:_) -> 'System.IO.print' i
---               ([]   , [] ) -> 'System.IO.putStrLn' $ "Does not appear to be a number: " 'Prelude.++' 'Prelude.show' ('Prelude.head' q)
---               (err:_, [] ) -> 'System.IO.putStrLn' $ "Got an error: " 'Prelude.++' 'Prelude.show' err
---               (err:_, i:_) -> 'System.IO.putStrLn' $ "Got an error: " 'Prelude.++' 'Prelude.show' err 'Prelude.++' "\nDid you mean " 'Prelude.++' 'show' i 'Prelude.++' "?"
---             )
---           loop
+-- main = 'System.Environment.getArgs' >>= \\args -> case args of
+--   ["--test"] -> 'testRandom'
+--   []         -> do
+--     'System.Console.Readline.initialize' -- initialize Readline
+--     'Data.Function.fix' $ \\loop -> do
+--       q <- 'System.Console.Readline.readline' "number> "
+--       case q of
+--         'Prelude.Nothing' -> 'Control.Monad.return' ()
+--         'Prelude.Just'  q -> do
+--           'System.Console.Readline.addHistory' q
+--           q <- 'Control.Applicative.pure' $ 'Data.Functor.fmap' obj <$> 'Dao.Examples.FuzzyString.tokenize' q
+--           if 'Prelude.null' q then 'Control.Monad.return' () else do
+--             'Control.Monad.forM_' ('Prelude.zip' q $ 'Data.Functor.fmap' ('Control.Monad.Identity.runIdentity' . 'Dao.Rule.queryAll' 'number') q)
+--               (\\ (q, result) -> case 'Data.Either.partitionEithers' result of
+--                 ([]   , i:_) -> 'System.IO.print' i
+--                 ([]   , [] ) -> 'System.IO.putStrLn' $ "Does not appear to be a number: " 'Prelude.++' 'Prelude.show' ('Prelude.head' q)
+--                 (err:_, [] ) -> 'System.IO.putStrLn' $ "Got an error: " 'Prelude.++' 'Prelude.show' err
+--                 (err:_, i:_) -> 'System.IO.putStrLn' $ "Got an error: " 'Prelude.++' 'Prelude.show' err 'Prelude.++' "\\nDid you mean " 'Prelude.++' 'show' i 'Prelude.++' "?"
+--               )
+--             loop
+--   _ -> 'Prelude.putStrLn' ("Unkown argument: " 'Prelude.++' 'Prelude.show' ('Prelude.head' args))
+--
+-- ----------------------------------------------------------------------------------------------------
+--
+-- 'testInteger' :: 'Prelude.Integer' -> IO 'Prelude.Bool'
+-- 'testInteger' i = 'Prelude.putStrLn' msg >> return ok where
+--   toStr o   = case 'Dao.Object.fromObj' o of
+--     'Dao.Predicate.Backtrack' -> ['Prelude.Left' ['Dao.Object.obj' $ "Could not convert " 'Prelude.++' 'Prelude.show' o 'Prelude.++' " to integer"]]
+--     'Prelude.PFail' err -> [Left err]
+--     'Prelude.OK'      o -> 'testRule' number (Strict.'Dao.Text.unpack' o) >>= (return . 'Prelude.Left' 'Control.Arrow.|||' toInt o)
+--   toInt o i = case 'Dao.Object.fromObj' i of
+--     'Prelude.Backtrack' -> ['Prelude.Left' [obj $ "Could not convert " 'Prelude.++' 'Prelude.show' i 'Prelude.++' " to string"]]
+--     'Prelude.PFail' err -> ['Prelude.Left' err]
+--     'Prelude.OK'      i -> ['Prelude.Right' (i, o)]
+--   (ok, msg) = case testRule number ('Prelude.show' i) >>= (return . 'Prelude.Left' ||| toStr) of
+--     ('Prelude.Right' o : []) | i == 'Prelude.fst' o -> (True , 'Prelude.show' i 'Prelude.++' ": OK -> " 'Prelude.++' 'Prelude.show' o)
+--     ('Prelude.Right' o : x ) | i == 'Prelude.fst' o -> let (errs, oks) = 'Prelude.length' 'Control.Arrow.***' 'Prelude.length' $ 'Data.Either.partitionEithers' x in
+--       ( 'Prelude.True'
+--       , 'Prelude.concat' $
+--           [ 'Prelude.show' i, ": ", 'Prelude.show' o, " WARNING "
+--           , 'Prelude.show' errs, " errors and ", 'Prelude.show' oks, " other valid results ignored"
+--           ]
+--       )
+--     result                      -> ('Prelude.False', 'Prelude.show' i 'Prelude.++' ": FAIL -> " 'Prelude.++' 'Prelude.show' result)
+--
+-- 'testRandom' :: IO ()
+-- 'testRandom' = ('Prelude.++') 'Control.Applicative.<$>' 'Control.Applicative.pure' [0..1400] 'Control.Applicative.<*>' 'Control.Monad.replicateM' 1000 'System.Random.randomIO' >>= loop 3 where
+--   loop counter ix = case ix of
+--     []   -> return ()
+--     i:ix -> do
+--       pass <- 'testInteger' i
+--       if 'Prelude.not' pass && (counter::'Prelude.Int') <= 1
+--       then return ()
+--       else loop ((if pass then 'Prelude.id' else 'Prelude.subtract' 1) counter) ix
 -- @
 main :: IO ()
-main = do
-  initialize -- initialize Readline
-  fix $ \loop -> do
-    q <- readline "number> "
-    case q of
-      Nothing -> return ()
-      Just  q -> do
-        addHistory q
-        q <- pure $ fmap obj <$> tokenize q
-        if null q then return () else do
-          forM_ (zip q $ fmap (runIdentity . queryAll number) q)
-            (\ (q, result) -> case partitionEithers result of
-              ([]   , i:_) -> print i
-              ([]   , [] ) -> putStrLn $ "Does not appear to be a number: "++show (head q)
-              (err:_, [] ) -> putStrLn $ "Got an error: "++show err
-              (err:_, i:_) -> putStrLn $ "Got an error: "++show err++"\nDid you mean "++show i++"?"
-            )
-          loop
+main = getArgs >>= \args -> case args of
+  ["--test"] -> testRandom
+  []         -> do
+    initialize -- initialize Readline
+    fix $ \loop -> do
+      q <- readline "number> "
+      case q of
+        Nothing -> return ()
+        Just  q -> do
+          addHistory q
+          q <- pure $ fmap obj <$> tokenize q
+          if null q then return () else do
+            forM_ (zip q $ fmap (runIdentity . queryAll number) q)
+              (\ (q, result) -> case partitionEithers result of
+                ([]   , i:_) -> print i
+                ([]   , [] ) -> putStrLn $ "Does not appear to be a number: "++show (head q)
+                (err:_, [] ) -> putStrLn $ "Got an error: "++show err
+                (err:_, i:_) -> putStrLn $ "Got an error: "++show err++"\nDid you mean "++show i++"?"
+              )
+            loop
+  _ -> putStrLn ("Unkown argument: "++show (head args))
+
+----------------------------------------------------------------------------------------------------
+
+-- | This will take an 'Prelude.Integer', feed it into 'number' to produce a sentence, then feed the
+-- sentence back into 'number' to produce the integer. If the result returned is the same as the
+-- value of the input, returns 'Prelude.True', otherwise returns 'Prelude.False'. Also prints a
+-- message to standard output.
+testInteger :: Integer -> IO Bool
+testInteger i = putStrLn msg >> return ok where
+  toStr o   = case fromObj o of
+    Backtrack -> [Left [obj $ "Could not convert "++show o++" to integer"]]
+    PFail err -> [Left err]
+    OK      o -> testRule number (Strict.unpack o) >>= (return . Left ||| toInt o)
+  toInt o i = case fromObj i of
+    Backtrack -> [Left [obj $ "Could not convert "++show i++" to string"]]
+    PFail err -> [Left err]
+    OK      i -> [Right (i, o)]
+  (ok, msg) = case testRule number (show i) >>= (return . Left ||| toStr) of
+    (Right o : []) | i == fst o -> (True , show i++": OK -> "++show o)
+    (Right o : x ) | i == fst o -> let (errs, oks) = length *** length $ partitionEithers x in
+      ( True
+      , concat $
+          [ show i, ": ", show o, " WARNING "
+          , show errs, " errors and ", show oks, " other valid results ignored"
+          ]
+      )
+    result                      -> (False, show i++": FAIL -> "++show result)
+
+-- | This will test all numbers from 0 to 1400, and then a thousand random numbers to make sure
+-- converting from integers to sentences and back to integers yield the number. Halts after three
+-- failures.
+testRandom :: IO ()
+testRandom = (++) <$> pure [0..1400] <*> replicateM 1000 randomIO >>= loop 3 where
+  loop counter ix = case ix of
+    []   -> return ()
+    i:ix -> do
+      pass <- testInteger i
+      if not pass && (counter::Int) <= 1
+      then return ()
+      else loop ((if pass then id else subtract 1) counter) ix
 
