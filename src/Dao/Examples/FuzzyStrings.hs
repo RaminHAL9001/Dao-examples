@@ -18,11 +18,8 @@
 
 module Dao.Examples.FuzzyStrings where
 
-import           Dao.Object
-import           Dao.Rule
-import           Dao.PPrint
-import           Dao.Predicate
-import           Dao.Text
+import           Dao
+import           Dao.Text.PPrint
 import qualified Dao.Tree as Tree
 
 import           Control.Applicative
@@ -71,7 +68,7 @@ instance SimpleData FuzzyString where
 
 instance ObjectPattern FuzzyString where
   objMatch (FuzzyString txt) o = case fromObj o of
-    OK o -> case fuzzyCompare (Strict.map toLower txt) (Strict.map toLower o) of
+    PTrue o -> case fuzzyCompare (Strict.map toLower txt) (Strict.map toLower o) of
       d | d<0.0 || d>1.0 -> error "fuzzyCompare evaluated to a meaningless value"
       d | d==1.0         -> ExactlyEqual
       d | d>0.67         -> Similar $ fromRational d
@@ -82,8 +79,8 @@ instance ObjectData FuzzyString where
   obj fuzStr = obj
     $ printable fuzStr
     $ matchable fuzStr
-    $ toForeign fuzStr
-  fromObj = fromObj >=> fromForeign
+    $ fromForeign fuzStr
+  fromObj = fromObj >=> toForeign
 
 fuzzyString :: ToText t => t -> FuzzyString
 fuzzyString = FuzzyString . toText
